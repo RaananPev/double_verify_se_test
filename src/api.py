@@ -1,104 +1,80 @@
-#
-# import logging
-# from decimal import Decimal
-# from fastapi import APIRouter, HTTPException, Request
-# from .domain import AccountID, Money, as_number
-# from . import repo
-#
-# logger = logging.getLogger(__name__)
-# router = APIRouter()
-#
-# @router.get("/health")
-# def health():
-#     logger.debug("GET /health")
-#     return {"status": "ok"}
-#
-# @router.get("/accounts/{account_number}/balance")
-# def get_balance(account_number: str = AccountID):
-#     logger.info("GET balance: account=%s", account_number)
-#     bal = repo.get_balance(account_number)
-#     return {"account_number": account_number, "balance": as_number(bal)}
-#
-# @router.post("/accounts/{account_number}/deposit")
-# def deposit(account_number: str = AccountID, body: Money = ...):
-#     logger.info("POST deposit: account=%s amount=%s", account_number, body.amount)
-#     amount = Decimal(str(body.amount))
-#     new_bal = repo.deposit(account_number, amount)
-#     return {"account_number": account_number, "balance": as_number(new_bal)}
-#
-# @router.post("/accounts/{account_number}/withdraw")
-# def withdraw(account_number: str = AccountID, body: Money = ...):
-#     logger.info("POST withdraw: account=%s amount=%s", account_number, body.amount)
-#     amount = Decimal(str(body.amount))
-#     try:
-#         new_bal = repo.withdraw(account_number, amount)
-#         return {"account_number": account_number, "balance": as_number(new_bal)}
-#     except ValueError as e:
-#         logger.warning("Withdraw failed: account=%s reason=%s", account_number, str(e))
-#         raise HTTPException(status_code=400, detail=str(e))
 
-
-from typing import Union
 from decimal import Decimal
+import logging
+from fastapi import APIRouter, HTTPException, Path
+from pydantic import BaseModel, StrictInt, StrictFloat, field_validator
+from typing import Union
 
-from fastapi import APIRouter, Path
-from pydantic import BaseModel, StrictInt, StrictFloat, Field, field_validator
+from .repo import get_balance as repo_get_balance
+from .repo import deposit as repo_deposit
+from .repo import withdraw as repo_withdraw
+from .repo import create_account as repo_create_account
 
-from .repo import get_balance as repo_get_balance, deposit as repo_deposit, withdraw as repo_withdraw,create_account as create
-
+log = logging.getLogger("api")
 router = APIRouter()
 
-AccountID = Path(
-    ...,
-    min_length=1,
-    max_length=64,
-    pattern=r"^[A-Za-z0-9_\-]+$",
-    description="Account identifier (1–64 chars, letters/digits/_/- only)",
-)
+# same account id constraints you use elsewhere
+AccountID = Path(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_\-]+$")
+
+def as_number(d: Decimal) -> float:
+    # repo/db already quantize to 2dp; safeguard here anyway
+    return float(d)
 
 class Money(BaseModel):
-    amount: Union[StrictInt, StrictFloat] = Field(..., description="Positive numeric amount (> 0)")
+    amount: Union[StrictInt, StrictFloat]
     @field_validator("amount")
     @classmethod
-    def _positive(cls, v):
+    def positive(cls, v):
         if v <= 0:
             raise ValueError("amount must be > 0")
         return v
 
-def _as_number(x: Decimal) -> float:
-    return float(x)
+class CreateBody(BaseModel):
+    # optional initial balance; default 0
+    initial_balance: Union[StrictInt, StrictFloat] | None = 0
+    @field_validator("initial_balance")
+    @classmethod
+    def non_negative(cls, v):
+        if v is None:
+            return 0
+        if v < 0:
+            raise ValueError("initial_balance must be >= 0")
+        return v
 
 @router.get("/health")
 def health():
     return {"status": "ok"}
 
+
+from .domain import as_number  # ensure import
+
 @router.get("/accounts/{account_number}/balance")
 def get_balance(account_number: str = AccountID):
-    bal = repo_get_balance(account_number)      # raises 404 if not found
-    return {"account_number": account_number, "balance": _as_number(bal)}
+    bal = repo_get_balance(account_number)
+    if bal is None:
+        # not found -> 404
+        raise HTTPException(status_code=404, detail=f"Account '{account_number}' does not exist")
+    return {"account_number": account_number, "balance": as_number(bal)}
 
 @router.post("/accounts/{account_number}/deposit")
 def deposit(account_number: str = AccountID, body: Money = ...):
-    new_bal = repo_deposit(account_number, Decimal(str(body.amount)))  # raises 404 if not found
-    return {"account_number": account_number, "balance": _as_number(new_bal)}
+    new_bal = repo_deposit(account_number, Decimal(str(body.amount)))
+    # repo_deposit raises 404 if account missing
+    return {"account_number": account_number, "balance": as_number(new_bal)}
 
 @router.post("/accounts/{account_number}/withdraw")
 def withdraw(account_number: str = AccountID, body: Money = ...):
-    new_bal = repo_withdraw(account_number, Decimal(str(body.amount)))  # 404 or 400 as needed
-    return {"account_number": account_number, "balance": _as_number(new_bal)}
-
-class CreateAccount(BaseModel):
-    initial_balance: Union[StrictInt, StrictFloat] = Field(0, description="Optional starting balance ≥ 0")
-
-    @field_validator("initial_balance")
-    @classmethod
-    def _nonneg(cls, v):
-        if v < 0:
-            raise ValueError("initial_balance must be ≥ 0")
-        return v
-
+    new_bal = repo_withdraw(account_number, Decimal(str(body.amount)))
+    # repo_withdraw raises 404 if account missing, 400 if insufficient funds
+    return {"account_number": account_number, "balance": as_number(new_bal)}
 
 @router.post("/accounts/{account_number}")
-def create_account(account_number: str = AccountID, body: CreateAccount = ...):
-    new_bal = create(account_number, Decimal(str(body.initial_balance)))
-    return {"account_number": account_number, "balance": float(new_bal)}
+def create_account(account_number: str = AccountID, body: CreateBody = CreateBody()):
+    initial = Decimal(str(body.initial_balance or 0))
+    try:
+        bal = repo_create_account(account_number, initial)
+    except HTTPException:
+        # let repo raise 409 if exists (your repo/db should do that)
+        raise
+    log.info("create account id=%s initial=%s -> %s", account_number, initial, bal)
+    return {"account_number": account_number, "balance": as_number(bal)}

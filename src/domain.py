@@ -47,10 +47,21 @@ AccountID = Path(
     description="Account identifier (1–64 chars, letters/digits/_/- only)",
 )
 
+# def q2(x: Decimal) -> Decimal:
+#     return x.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+#
+# def as_number(x: Decimal) -> float:
+#     return float(q2(x))
+from decimal import Decimal, ROUND_HALF_UP
+
+TWOPL = Decimal("0.01")
+
 def q2(x: Decimal) -> Decimal:
-    return x.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    """Quantize to 2 decimal places, HALF UP (bank-like display)."""
+    return x.quantize(TWOPL, rounding=ROUND_HALF_UP)
 
 def as_number(x: Decimal) -> float:
+    """Convert Decimal to JSON number using 2dp HALF UP."""
     return float(q2(x))
 
 class Money(BaseModel):
