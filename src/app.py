@@ -13,11 +13,9 @@ from .api import router
 from .db import init_db, seed_if_empty
 from .logger_config import setup_logging
 
-# ---- logging ----
 setup_logging()
 log = logging.getLogger("app")
 
-# ---- status -> code mapping ----
 STATUS_TO_CODE = {
     400: "BAD_REQUEST",
     401: "UNAUTHORIZED",
@@ -37,8 +35,8 @@ def error_response(status: int, message: str) -> JSONResponse:
         content={"error": {"code": code_for(status), "message": message}},
     )
 
-# ---- middleware ----
 class EnforceJSONMiddleware(BaseHTTPMiddleware):
+    """Rejects non-JSON bodies for mutating methods to keep API contract strict."""
     async def dispatch(self, request: Request, call_next):
         if request.method in {"POST", "PUT", "PATCH"}:
             ct = request.headers.get("content-type", "").split(";")[0].strip().lower()
@@ -48,6 +46,7 @@ class EnforceJSONMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Adds a stable request id (from header or generated) into logs and response headers."""
     async def dispatch(self, request: Request, call_next):
         rid = request.headers.get("x-request-id") or str(uuid.uuid4())
         old_factory = logging.getLogRecordFactory()
@@ -63,10 +62,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             logging.setLogRecordFactory(old_factory)
 
-# ---- lifespan (replaces @app.on_event) ----
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    """Startup/shutdown hooks (preferred over deprecated on_event)."""
     init_db()
     if os.getenv("ATM_DISABLE_SEED") != "1":
         seed_if_empty()
@@ -74,19 +72,16 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        # Shutdown
         log.info("🛑 ATM API stopped")
 
 def create_app() -> FastAPI:
     app = FastAPI(title="ATM System", lifespan=lifespan)
-
-    # middleware
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(EnforceJSONMiddleware)
 
-    # exception handlers
     @app.exception_handler(RequestValidationError)
-    async def validation_handler(request: Request, exc: RequestValidationError):
+    async def validation_handler(_: Request, exc: RequestValidationError):
+        # Summarize first validation error for a compact, user-friendly message.
         msg = "Invalid request."
         try:
             err = exc.errors()[0]
@@ -95,16 +90,13 @@ def create_app() -> FastAPI:
             msg = f"{loc}: {detail}" if loc else (detail or msg)
         except Exception:
             pass
-        log.warning("422 validation: %s %s -> %s", request.method, request.url.path, msg)
         return error_response(422, msg)
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_exc_handler(request: Request, exc: StarletteHTTPException):
+    async def http_exc_handler(_: Request, exc: StarletteHTTPException):
         detail = exc.detail if isinstance(exc.detail, str) else code_for(exc.status_code).replace("_", " ").title()
-        log.warning("%s %s -> %s (%s)", request.method, request.url.path, exc.status_code, detail)
         return error_response(exc.status_code, str(detail))
 
-    # routers
     app.include_router(router)
     return app
 

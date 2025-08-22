@@ -10,6 +10,7 @@ def _db_path() -> str:
 _conn = None
 
 def reset_connection():
+    """Drop the cached connection so subsequent calls reopen with the current DB_PATH."""
     global _conn
     if _conn is not None:
         try: _conn.close()
@@ -47,6 +48,7 @@ def truncate_all():
 
 
 def seed_if_empty() -> None:
+    """Insert demo accounts if the table is empty (used for local dev/demo)."""
     from decimal import Decimal
     with closing(_open_conn()) as conn:
         (n,) = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()
@@ -61,20 +63,6 @@ def seed_if_empty() -> None:
         conn.executemany("INSERT INTO accounts(id, balance) VALUES(?, ?)", rows)
     log.info("DB seed inserted %d demo accounts", len(rows))
 
-# The rest of your CRUD functions should use `with closing(_open_conn()) as conn:`
-# just like your current code does for get_balance, create_account, deposit, withdraw.
-def seed_reset() -> None:
-    """Always end up with default rows (good for ‘restore dev DB’ jobs)."""
-    with closing(_open_conn()) as conn:
-        conn.execute("DELETE FROM accounts")
-        rows = [
-            ("12345", str(Decimal("10500.00"))),
-            ("777",   str(Decimal("12015.00"))),
-            ("a111",  str(Decimal("5040.00"))),
-            ("007",   str(Decimal("47000.00"))),
-        ]
-        conn.executemany("INSERT INTO accounts(id, balance) VALUES(?, ?)", rows)
-    log.info("DB seed_reset wrote default rows at %s", _db_path())
 
 def account_exists(account_id: str) -> bool:
     with closing(_open_conn()) as conn:
@@ -92,6 +80,10 @@ def create_account(account_id: str, initial: Decimal) -> Decimal:
         return initial
 
 def deposit(account_id: str, amount: Decimal) -> Decimal | None:
+    """
+    Atomically add `amount` to balance.
+    Returns new balance, or None if the account doesn't exist.
+    """
     with closing(_open_conn()) as conn:
         cur = conn.cursor()
         cur.execute("BEGIN IMMEDIATE")
@@ -111,6 +103,13 @@ def deposit(account_id: str, amount: Decimal) -> Decimal | None:
             raise
 
 def withdraw(account_id: str, amount: Decimal) -> Decimal | None:
+    """
+        Atomically subtract `amount` from balance.
+        Returns:
+          - new balance on success
+          - None if account is missing
+          - old balance (unchanged) if insufficient funds (signal for repo to map to 400)
+    """
     with closing(_open_conn()) as conn:
         cur = conn.cursor()
         cur.execute("BEGIN IMMEDIATE")

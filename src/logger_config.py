@@ -8,7 +8,11 @@ os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 def setup_logging():
-    """Configure application-wide logging with console + rotating file."""
+    """
+    Structured logging to console + daily-rotated file.
+    - Rotates at midnight and keeps 7 days of history.
+    - Format includes request ID injected by middleware.
+    """
     root = logging.getLogger()
     if root.handlers:
         # Avoid double configuration if reloaded
