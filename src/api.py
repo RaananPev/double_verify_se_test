@@ -41,6 +41,12 @@ class CreateBody(BaseModel):
             raise ValueError("initial_balance must be >= 0")
         return v
 
+
+@router.get("/")
+def root():
+    return {"status": "ok", "message": "Welcome to the ATM API", "docs": "/docs"}
+
+
 @router.get("/health")
 def health():
     return {"status": "ok"}
