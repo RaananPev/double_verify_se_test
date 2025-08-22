@@ -7,7 +7,7 @@ import pytest
 import httpx
 
 # ---- Configuration ----
-BASE_URL = os.environ.get("ATM_API_URL")  # e.g. https://atm-api-12345.herokuapp.com
+BASE_URL = os.environ.get("ATM_API_URL")
 
 @pytest.fixture(scope="session", autouse=True)
 def require_base_url():
