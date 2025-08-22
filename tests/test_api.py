@@ -337,8 +337,8 @@ def test_deposit_rejects_non_json_content_type(client: TestClient):
     assert create_account(client, a).status_code == 200  # used to be 201
     r = client.post(
         f"/accounts/{a}/deposit",
-        data="amount=10",  # form body
-        headers={"Content-Type": "application/x-www-form-urlencoded"}
+        content = "amount=10",  # raw body (intentionally wrong type)
+        headers = {"Content-Type": "application/x-www-form-urlencoded"},
     )
     assert r.status_code == 415
     body = r.json()
