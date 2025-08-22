@@ -1,17 +1,3 @@
-# import logging
-# import sys
-#
-# def setup_logging():
-#     """Configure application-wide logging."""
-#     logging.basicConfig(
-#         level=logging.INFO,  # Default log level
-#         format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
-#         handlers=[
-#             logging.StreamHandler(sys.stdout),     # logs to console
-#             logging.FileHandler("logs/app.log"),   # logs also saved to file
-#         ],
-#     )
-
 import logging
 import os
 from logging.handlers import TimedRotatingFileHandler

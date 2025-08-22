@@ -1,6 +1,3 @@
-
-
-# src/db.py
 import os, sqlite3, logging
 from contextlib import closing
 from decimal import Decimal
